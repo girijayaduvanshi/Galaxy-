@@ -1,0 +1,107 @@
+from astropy.io import fits
+from skimage.transform import resize
+from scipy.ndimage import gaussian_filter
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage import exposure
+import fitsio
+
+# Function to load FITS data and optionally downsample
+def load_fits_data(fits_files, downsample_factor=1.0):
+    stacked_data = []
+    for file in fits_files:
+        hdu = fitsio.read(file)
+        if downsample_factor < 1.0:
+            hdu = resize(hdu, (int(hdu.shape[0] * downsample_factor), int(hdu.shape[1] * downsample_factor)))
+        stacked_data.append(hdu)
+    return np.median(np.array(stacked_data), axis=0)
+
+# Function to process each channel (L, R, G, B)
+def process_channel(fits_files, output_file, downsample_factor=1.0, sigma_value=1.0):
+    stacked_image = load_fits_data(fits_files, downsample_factor)
+    denoised_image = gaussian_filter(stacked_image, sigma=sigma_value)  # Denoising with Gaussian blur
+    fits.writeto(output_file, denoised_image, overwrite=True)
+
+# Define the FITS files for each channel
+luminance_files = ['2024-03-30_21-08-06_L_-10.10_10.00s_0000.fits', '2024-03-30_21-09-44_L_-9.80_10.00s_0000.fits']
+red_files = ['2024-03-30_21-08-20_R_-10.00_10.00s_0000.fits', '2024-03-30_21-09-01_R_-9.90_10.00s_0000.fits']
+green_files = ['2024-03-30_21-08-33_G_-9.90_10.00s_0000.fits', '2024-03-30_21-09-15_G_-9.90_10.00s_0000.fits']
+blue_files = ['2024-03-30_21-08-46_B_-9.90_10.00s_0000.fits', '2024-03-30_21-09-28_B_-9.80_10.00s_0000.fits']
+
+
+# Downsample factor (use 1.0 for full resolution, <1.0 to reduce size for faster processing)
+downsample_factor = 0.5  # Adjust this factor to control resolution during processing
+
+# Sigma for Gaussian blur (adjust for desired denoising effect)
+sigma_value = 1.0
+
+def main():
+    print("Processing Luminance channel...")
+    process_channel(luminance_files, 'stacked_luminance.fits', downsample_factor, sigma_value)
+    
+    print("Processing Red channel...")
+    process_channel(red_files, 'stacked_red.fits', downsample_factor, sigma_value)
+    
+    print("Processing Green channel...")
+    process_channel(green_files, 'stacked_green.fits', downsample_factor, sigma_value)
+    
+    print("Processing Blue channel...")
+    process_channel(blue_files, 'stacked_blue.fits', downsample_factor, sigma_value)
+    
+    print("Processing completed for all channels!")
+
+if __name__ == "__main__":
+    main()
+
+
+
+# Load the stacked FITS images for L, R, G, B channels
+luminance_file = 'stacked_luminance.fits'
+red_file = 'stacked_red.fits'
+green_file = 'stacked_green.fits'
+blue_file = 'stacked_blue.fits'
+
+# Open each FITS file and load the data (ensure they are 2D arrays)
+def load_fits_data(file):
+    data = fits.open(file)[0].data
+    # If the data has more than 2 dimensions (e.g., 3D), slice it to get the 2D image part
+    if data.ndim > 2:
+        data = data[0]  # Take only the first 2D slice
+    return data
+
+luminance_data = load_fits_data(luminance_file)
+red_data = load_fits_data(red_file)
+green_data = load_fits_data(green_file)
+blue_data = load_fits_data(blue_file)
+
+# Normalise all channels to ensure uniform brightness levels
+def normalize(data):
+    return (data - np.min(data)) / (np.max(data) - np.min(data))
+
+# Normalise the channels
+luminance_normalised = normalise(luminance_data)
+red_normalised = normalise(red_data)
+green_normalised = normalise(green_data)
+blue_normalised = normalise(blue_data)
+
+# Enhance contrast using histogram equalization if needed
+luminance_equalised = exposure.equalise_hist(luminance_normalised)
+red_equalised = exposure.equalise_hist(red_normalised)
+green_equalised = exposure.equalise_hist(green_normalised)
+blue_equalised = exposure.equalise_hist(blue_normalised)
+
+# Combine the RGB channels into a 3D array to represent the image (height, width, 3)
+rgb_image = np.zeros((red_equalised.shape[0], red_equalised.shape[1], 3), dtype=np.float32)
+rgb_image[..., 0] = red_equalised  # Red channel
+rgb_image[..., 1] = green_equalised  # Green channel
+rgb_image[..., 2] = blue_equalised  # Blue channel
+
+# Save the final stacked LRGB image as a FITS file
+final_fits = 'combined_m51_rgb.fits'
+fits.writeto(final_fits, rgb_image, overwrite=True)
+
+# Display the combined image
+plt.imshow(rgb_image)
+plt.title('M51 Combined LRGB Image')
+plt.axis('off')
+plt.show()
